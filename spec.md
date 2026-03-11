@@ -87,7 +87,7 @@ Compatibility requirement:
 Recommended options:
 
 - `--token-env ENV_VAR`
-  Explicit environment variable name to read the bearer token from
+  Explicit environment variable name to read the API token from
 - `-o, --output PATH`
   Write Markdown to file; stdout remains the default when this is omitted
 - `--format markdown|json`
@@ -118,6 +118,8 @@ Recommended commands:
 
 - `confluence-fetch config show`
 - `confluence-fetch config set-default-token-env ENV_VAR`
+- `confluence-fetch config set-email EMAIL`
+- `confluence-fetch config clear-email`
 - `confluence-fetch config set-domain-token-env DOMAIN ENV_VAR`
 - `confluence-fetch config remove-domain DOMAIN`
 
@@ -128,6 +130,7 @@ Behavior requirements:
 - Preserve unrelated existing config where practical when updating values
 - `config show` must display the effective config clearly
 - `config show` should display env var names plus whether each resolved env var is currently set or missing, but must never print token values
+- `config show` should display the configured default email if present
 - Config stores only non-secret defaults and env var names, never token values
 
 ## Resolution Rules
@@ -146,7 +149,7 @@ If a site root is known, the tool should resolve the cloud ID automatically when
 
 Agent-first quick-start target:
 
-- If the caller provides a full Confluence page URL plus `CONFLUENCE_TOKEN`, that should be enough for a successful fetch in the common case
+- If the caller provides a full Confluence page URL plus `CONFLUENCE_TOKEN` and configures a default email, that should be enough for a successful fetch in the common case
 - Cloud ID lookup should remain an internal implementation detail unless a later troubleshooting need justifies a public command
 
 ## Local Config
@@ -167,6 +170,7 @@ Recommended shape:
 ```toml
 [defaults]
 token_env_var = "CONFLUENCE_TOKEN"
+email = "you@example.com"
 
 [domains."sona-systems.atlassian.net"]
 token_env_var = "SONA_CONFLUENCE_TOKEN"
@@ -192,6 +196,13 @@ Recommended precedence:
 5. Then read the actual token value from the resolved environment variable name
 6. If the env var value is missing or empty, fail with a clear usage/auth error
 
+Email precedence:
+
+1. If `[defaults].email` is configured, use that email
+2. Else use `CONFLUENCE_EMAIL` if present
+3. Else use compatibility fallback `confluence_email` if present
+4. Else fail with a clear usage/auth error
+
 ### Important limitation
 
 A domain-to-token mapping assumes one preferred token per tenant host.
@@ -207,6 +218,7 @@ That is the right default for the primary use case, but v2 should still support 
 Canonical environment variable names should be uppercase:
 
 - `CONFLUENCE_TOKEN`
+- `CONFLUENCE_EMAIL`
 
 Compatibility recommendation:
 
@@ -214,12 +226,14 @@ Compatibility recommendation:
 
 Recommended auth mode:
 
-- Required: scoped API token in `CONFLUENCE_TOKEN`, sent as a Bearer token to Atlassian's gateway endpoints
+- Required: Atlassian API token in `CONFLUENCE_TOKEN`
+- Required: Confluence account email from config or `CONFLUENCE_EMAIL`
+- Send requests using Basic auth with `email:token` to Atlassian's gateway endpoints
 
 Recommended UX:
 
 - Do not expose raw API base URLs as part of the normal public setup
-- Do not implement Basic auth or email-based auth in v2 unless forced by a later documented Atlassian limitation
+- Do not implement OAuth token flows in v2 unless a later documented need emerges
 - Fail clearly if the resolved env var name is set in config/flags but the actual environment variable is missing or empty
 - Do not add a command that attempts to persistently set shell environment variables across platforms
 - If auth persistence is ever added later, use a secure credential store rather than plain-text config
@@ -314,7 +328,7 @@ It must include:
 - Exit codes
 - At least one example for URL input, file output, and config commands
 - A short note about the installable package vs local `uv run` script entry point
-- A shortest-path setup example that uses only `CONFLUENCE_TOKEN` plus a full page URL
+- A shortest-path setup example that uses `CONFLUENCE_TOKEN`, `config set-email`, and a full page URL
 
 ## Comments
 
