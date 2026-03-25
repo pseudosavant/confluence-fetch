@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "confluence-fetch"
-version = "0.9.1"
+version = "0.9.2"
 description = "Agent-first CLI for fetching Confluence Cloud page context as Markdown or JSON."
 readme = "README.md"
 requires-python = ">=3.11"
