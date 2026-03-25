@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import io
 from pathlib import Path
+
+import pytest
 
 import confluence_fetch.cli as cli
 from confluence_fetch.models import AssetsResult, DiscussionResult, PageResult
@@ -278,3 +281,37 @@ def test_fetch_requires_email_for_basic_auth(monkeypatch, tmp_path: Path) -> Non
 
     assert exit_code == 2
     assert "config set-email" in stderr.getvalue()
+
+
+def test_root_help_emphasizes_url_only_happy_path() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with pytest.raises(SystemExit) as excinfo:
+            cli.main(["--help"], env={})
+
+    assert excinfo.value.code == 0
+    help_text = stdout.getvalue()
+    assert "Happy path:" in help_text
+    assert "confluence-fetch <url>" in help_text
+    assert 'automatically treats it as "fetch <url>"' in help_text
+    assert "config set-email you@example.com" in help_text
+    assert stderr.getvalue() == ""
+
+
+def test_fetch_help_explains_url_first_usage() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with pytest.raises(SystemExit) as excinfo:
+            cli.main(["fetch", "--help"], env={})
+
+    assert excinfo.value.code == 0
+    help_text = stdout.getvalue()
+    assert "Happy path:" in help_text
+    assert "confluence-fetch <url>" in help_text
+    assert "Most runs should only need the URL." in help_text
+    assert "Bare page IDs are not supported; pass a Confluence URL" in help_text
+    assert stderr.getvalue() == ""

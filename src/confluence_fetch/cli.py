@@ -26,22 +26,101 @@ from confluence_fetch.models import FetchOptions
 from confluence_fetch.urls import parse_host
 
 
+ROOT_DESCRIPTION = """\
+confluence-fetch - Fetch Confluence Cloud page context as Markdown or JSON
+
+Happy path:
+  1. Set CONFLUENCE_TOKEN in the environment
+  2. Set your Confluence email once: confluence-fetch config set-email you@example.com
+  3. Fetch a page by passing only the URL:
+     confluence-fetch https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+
+You usually only need to pass a Confluence URL. When the first argument is a URL,
+confluence-fetch automatically treats it as "fetch <url>".
+"""
+
+ROOT_EPILOG = """\
+Usage:
+  confluence-fetch <url>
+  confluence-fetch fetch <url> [options]
+  confluence-fetch config <command>
+
+Examples:
+  confluence-fetch https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch --help
+  confluence-fetch fetch --format json https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch --comments https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch config show
+
+Commands:
+  fetch   Fetch a Confluence page. Usually implicit when you pass a URL directly.
+  config  Show or update non-secret config.
+
+Auth:
+  Basic auth only: Confluence account email plus API token.
+  Token env resolution: --token-env, domain config override, [defaults].token_env_var, CONFLUENCE_TOKEN
+  Email resolution: domain config email, [defaults].email, CONFLUENCE_EMAIL, confluence_email
+
+Output contract:
+  stdout  Payload only (Markdown by default, JSON with --format json)
+  stderr  Diagnostics, progress, and errors
+
+Accepted URL forms:
+  Full Confluence page URLs
+  Short /wiki/x/ URLs
+
+Local and package entrypoints:
+  uvx confluence-fetch --help
+  uv run confluence_fetch.py --help
+
+Exit codes:
+  0 success
+  2 usage
+  10 auth
+  20 not found
+  30 rate limited
+  1 other failure
+"""
+
+FETCH_DESCRIPTION = """\
+Fetch a Confluence page by URL.
+
+Happy path:
+  confluence-fetch <url>
+
+Explicit form:
+  confluence-fetch fetch <url>
+
+Most runs should only need the URL. Add flags only when you need a non-default
+format, file output, image downloads, comments, or verbose diagnostics.
+"""
+
+FETCH_EPILOG = """\
+Examples:
+  confluence-fetch https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch --format json https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch -o page.md https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch --comments https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch --download-images --assets-dir assets https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+
+Required setup:
+  Set a token env var, usually CONFLUENCE_TOKEN
+  Set your email once: confluence-fetch config set-email you@example.com
+
+Notes:
+  Default output format is Markdown
+  JSON output includes structured fields plus Markdown fields
+  Comments are opt-in with --comments
+  Bare page IDs are not supported; pass a Confluence URL
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="confluence-fetch",
-        description=(
-            "Fetch Confluence Cloud page context and emit Markdown or JSON payloads on stdout. "
-            "Diagnostics, progress, and errors are written to stderr."
-        ),
-        epilog=(
-            "Accepted URL forms: full Confluence page URLs and short /wiki/x/ URLs.\n"
-            "Token env resolution order: --token-env, domain config override, [defaults].token_env_var, CONFLUENCE_TOKEN.\n"
-            "Auth mode: Basic auth only, using a Confluence account email plus API token.\n"
-            "Email resolution order: config [defaults].email, CONFLUENCE_EMAIL, confluence_email.\n"
-            "Package entry point: uvx confluence-fetch ...\n"
-            "Local wrapper: uv run confluence_fetch.py ...\n"
-            "Exit codes: 0 success, 2 usage, 10 auth, 20 not found, 30 rate limited, 1 other failure."
-        ),
+        description=ROOT_DESCRIPTION,
+        epilog=ROOT_EPILOG,
+        usage="confluence-fetch <url> | confluence-fetch fetch <url> [options] | confluence-fetch config <command>",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -49,23 +128,20 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser = subparsers.add_parser(
         "fetch",
         help="Fetch a Confluence page and emit Markdown or JSON.",
+        usage="confluence-fetch <url> | confluence-fetch fetch <url> [options]",
         formatter_class=argparse.RawTextHelpFormatter,
-        description=(
-            "Fetch a Confluence page by URL.\n"
-            "Payload output goes to stdout by default; stderr is reserved for diagnostics.\n"
-            "Auth uses Basic auth with email plus API token.\n"
-            "Shortest path: set CONFLUENCE_TOKEN, set config email, then run confluence-fetch fetch <url>."
-        ),
+        description=FETCH_DESCRIPTION,
+        epilog=FETCH_EPILOG,
     )
-    fetch_parser.add_argument("url", help="Full Confluence page URL or short /wiki/x/ URL.")
-    fetch_parser.add_argument("--token-env", help="Environment variable name to read the API token from.")
-    fetch_parser.add_argument("-o", "--output", type=Path, help="Write payload to a file instead of stdout.")
+    fetch_parser.add_argument("url", help="Confluence page URL. Full page URLs and short /wiki/x/ URLs are supported.")
+    fetch_parser.add_argument("--token-env", help="Read the API token from this environment variable name.")
+    fetch_parser.add_argument("-o", "--output", type=Path, help="Write the payload to a file instead of stdout.")
     fetch_parser.add_argument(
         "--format",
         dest="format_name",
         choices=("markdown", "json"),
         default="markdown",
-        help="Payload format. Default: markdown.",
+        help="Output format. Default: markdown.",
     )
     fetch_parser.add_argument(
         "--download-images",
@@ -77,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Directory for downloaded assets. Requires --download-images.",
     )
-    fetch_parser.add_argument("--comments", action="store_true", help="Append a # Discussion section.")
+    fetch_parser.add_argument("--comments", action="store_true", help="Include a # Discussion section.")
     fetch_parser.add_argument(
         "--comment-limit",
         type=int,
@@ -93,7 +169,22 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument("--verbose", action="store_true", help="Write detailed diagnostics to stderr.")
     fetch_parser.add_argument("--no-progress", action="store_true", help="Disable progress output on stderr.")
 
-    config_parser = subparsers.add_parser("config", help="Show or update non-secret config.")
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Show or update non-secret config.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Show or update config at ~/.confluence-fetch/config.toml.\n"
+            "Config stores env var names and email values, never token values."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  confluence-fetch config show\n"
+            "  confluence-fetch config set-email you@example.com\n"
+            "  confluence-fetch config set-default-token-env CONFLUENCE_TOKEN\n"
+            "  confluence-fetch config set-domain-token-env sona-systems.atlassian.net SONA_CONFLUENCE_TOKEN"
+        ),
+    )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_subparsers.add_parser("show", help="Show effective config and env var presence.")
 
