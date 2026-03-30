@@ -300,6 +300,32 @@ def test_root_help_emphasizes_url_only_happy_path() -> None:
     assert stderr.getvalue() == ""
 
 
+def test_no_args_shows_help_and_returns_zero() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = cli.main([], stdout=stdout, stderr=stderr, env={})
+
+    assert exit_code == 0
+    help_text = stdout.getvalue()
+    assert "Happy path:" in help_text
+    assert "confluence-fetch <url>" in help_text
+    assert stderr.getvalue() == ""
+
+
+def test_version_flag_prints_version_and_returns_zero() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with pytest.raises(SystemExit) as excinfo:
+            cli.main(["--version"], env={})
+
+    assert excinfo.value.code == 0
+    assert stdout.getvalue() == "confluence-fetch 0.11.0\n"
+    assert stderr.getvalue() == ""
+
+
 def test_fetch_help_explains_url_first_usage() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()

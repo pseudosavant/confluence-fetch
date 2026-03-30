@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from confluence_fetch import __version__
 from confluence_fetch.config import (
     clear_default_email,
     default_config_path,
@@ -122,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=ROOT_EPILOG,
         usage="confluence-fetch <url> | confluence-fetch fetch <url> [options] | confluence-fetch config <command>",
         formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -346,6 +353,9 @@ def main(
 
     try:
         parsed_argv = normalize_argv(list(argv) if argv is not None else sys.argv[1:])
+        if not parsed_argv:
+            parser.print_help(file=active_stdout)
+            return 0
         args = parser.parse_args(parsed_argv)
         if args.command == "fetch":
             return run_fetch(args, stdout=active_stdout, stderr=active_stderr, env=active_env, home=home)
