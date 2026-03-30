@@ -69,6 +69,75 @@ def test_resolve_short_url_follows_redirects() -> None:
     assert target.canonical_url.endswith("/123456789/Example")
 
 
+def test_resolve_short_url_accepts_page_urls_with_query_params() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/wiki/x/AQAtl":
+            return httpx.Response(
+                302,
+                request=request,
+                headers={
+                    "Location": (
+                        "https://example.atlassian.net/wiki/spaces/ENG/pages/123456789"
+                        "?atlOrigin=eyJpIjoiZmFrZSJ9"
+                    )
+                },
+            )
+        return httpx.Response(200, request=request, text="ok")
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, follow_redirects=True)
+    ctx = FetchContext(client=client, stderr=io.StringIO(), verbose=False, no_progress=True)
+
+    target = resolve_target("https://example.atlassian.net/wiki/x/AQAtl", client, ctx)
+
+    assert target.page_id == "123456789"
+    assert target.canonical_url.endswith("/123456789?atlOrigin=eyJpIjoiZmFrZSJ9")
+
+
+def test_resolve_short_url_falls_back_to_api_when_redirect_goes_to_login() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/wiki/x/AQAtl":
+            return httpx.Response(
+                302,
+                request=request,
+                headers={"Location": "https://example.atlassian.net/login?application=confluence&dest-url=%2Fwiki%2Fx%2FAQAtl"},
+            )
+        if request.url.path == "/login":
+            return httpx.Response(200, request=request, text="login")
+        if request.url.host == "api.atlassian.com" and request.url.path == "/ex/confluence/cloud-id/wiki/api/v2/pages":
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "results": [
+                        {
+                            "id": "123456789",
+                            "_links": {
+                                "tinyui": "/x/AQAtl",
+                                "webui": "/spaces/ENG/pages/123456789/Example",
+                            },
+                        }
+                    ],
+                    "_links": {},
+                },
+            )
+        return httpx.Response(404, request=request)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, follow_redirects=True)
+    ctx = FetchContext(client=client, stderr=io.StringIO(), verbose=False, no_progress=True)
+
+    target = resolve_target(
+        "https://example.atlassian.net/wiki/x/AQAtl",
+        client,
+        ctx,
+        gateway_base="https://api.atlassian.com/ex/confluence/cloud-id/wiki",
+    )
+
+    assert target.page_id == "123456789"
+    assert target.canonical_url == "https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example"
+
+
 def test_comment_tree_and_limit_behavior() -> None:
     raw_comments = [
         {

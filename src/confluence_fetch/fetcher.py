@@ -30,7 +30,14 @@ from confluence_fetch.models import (
     PageResult,
     ResolvedTarget,
 )
-from confluence_fetch.urls import extract_page_id, is_short_url, parse_host, resolve_target_without_redirects, site_url_from_url
+from confluence_fetch.urls import (
+    extract_page_id,
+    extract_short_path,
+    is_short_url,
+    parse_host,
+    resolve_target_without_redirects,
+    site_url_from_url,
+)
 
 
 MAX_RETRIES = 4
@@ -42,7 +49,7 @@ import base64
 def build_auth_headers(token: str, email: str) -> dict[str, str]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "confluence-fetch/0.9.1",
+        "User-Agent": "confluence-fetch/0.10.0",
     }
     raw = f"{email}:{token}".encode("utf-8")
     headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
@@ -119,7 +126,55 @@ def gateway_base_url(cloud_id: str) -> str:
     return f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki"
 
 
-def resolve_target(url: str, client: httpx.Client, ctx: FetchContext) -> ResolvedTarget:
+def resolve_short_url_via_api(
+    url: str,
+    *,
+    site_url: str,
+    gateway_base: str,
+    client: httpx.Client,
+    ctx: FetchContext,
+) -> ResolvedTarget:
+    short_path = extract_short_path(url)
+    if not short_path:
+        raise UsageError("The URL is not a supported Confluence short URL.")
+
+    ctx.progress("Resolving short URL via API...")
+    page_url = f"{gateway_base}/api/v2/pages?limit=250"
+    while page_url:
+        response = request(client, "GET", page_url, ctx=ctx)
+        payload = response.json()
+        page_results = payload.get("results", [])
+        if not isinstance(page_results, list):
+            raise AppError("Confluence API returned invalid results.")
+        for item in page_results:
+            if not isinstance(item, dict):
+                continue
+            links = item.get("_links", {})
+            tinyui = links.get("tinyui") if isinstance(links, dict) else None
+            if tinyui != short_path:
+                continue
+            page_id = str(item.get("id", "")).strip()
+            webui = links.get("webui") if isinstance(links, dict) else None
+            canonical_url = (
+                f"{site_url}/wiki{webui}"
+                if isinstance(webui, str) and webui.startswith("/")
+                else f"{site_url}{short_path}"
+            )
+            if not page_id:
+                raise AppError("Confluence API returned a short-link match without a page ID.")
+            return ResolvedTarget(
+                requested_url=url,
+                canonical_url=canonical_url,
+                site_url=site_url,
+                host=parse_host(site_url),
+                page_id=page_id,
+            )
+        page_url = resolve_next_url(gateway_base, payload.get("_links", {}).get("next"))
+
+    raise UsageError("The short URL did not resolve to a Confluence page URL with a page ID.")
+
+
+def resolve_target(url: str, client: httpx.Client, ctx: FetchContext, gateway_base: str | None = None) -> ResolvedTarget:
     if not is_short_url(url):
         return resolve_target_without_redirects(url)
 
@@ -127,14 +182,22 @@ def resolve_target(url: str, client: httpx.Client, ctx: FetchContext) -> Resolve
     response = request(client, "GET", url, ctx=ctx)
     canonical_url = str(response.url)
     page_id = extract_page_id(canonical_url)
-    if not page_id:
+    if page_id:
+        return ResolvedTarget(
+            requested_url=url,
+            canonical_url=canonical_url,
+            site_url=site_url_from_url(canonical_url),
+            host=parse_host(canonical_url),
+            page_id=page_id,
+        )
+    if gateway_base is None:
         raise UsageError("The short URL did not resolve to a Confluence page URL with a page ID.")
-    return ResolvedTarget(
-        requested_url=url,
-        canonical_url=canonical_url,
-        site_url=site_url_from_url(canonical_url),
-        host=parse_host(canonical_url),
-        page_id=page_id,
+    return resolve_short_url_via_api(
+        url,
+        site_url=site_url_from_url(url),
+        gateway_base=gateway_base,
+        client=client,
+        ctx=ctx,
     )
 
 
@@ -513,9 +576,10 @@ def fetch_document(
     ctx = FetchContext(client=active_client, stderr=stderr, verbose=options.verbose, no_progress=options.no_progress)
 
     try:
-        target = resolve_target(target_url, active_client, ctx)
-        cloud_id = fetch_cloud_id(target.site_url, active_client, ctx)
+        initial_site_url = site_url_from_url(target_url)
+        cloud_id = fetch_cloud_id(initial_site_url, active_client, ctx)
         gateway_base = gateway_base_url(cloud_id)
+        target = resolve_target(target_url, active_client, ctx, gateway_base=gateway_base)
         page_payload = fetch_page_payload(target, gateway_base, active_client, ctx)
         title = page_payload.get("title") or ""
         page_html = extract_body_html(page_payload)

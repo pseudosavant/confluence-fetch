@@ -8,7 +8,7 @@ from confluence_fetch.models import ResolvedTarget
 
 
 PAGE_ID_PATTERNS = [
-    re.compile(r"/wiki/spaces/[^/]+/pages/(?P<page_id>\d+)(?:/|$)"),
+    re.compile(r"/wiki/spaces/[^/]+/pages/(?P<page_id>\d+)(?:[/?#]|$)"),
     re.compile(r"/wiki/pages/viewpage\.action\?pageId=(?P<page_id>\d+)"),
 ]
 SHORT_URL_PATTERN = re.compile(r"/wiki/x/[^/?#]+/?$")
@@ -39,6 +39,15 @@ def extract_page_id(url: str) -> str | None:
 def is_short_url(url: str) -> bool:
     parsed = urlparse(url)
     return bool(SHORT_URL_PATTERN.match(parsed.path))
+
+
+def extract_short_path(url: str) -> str | None:
+    parsed = urlparse(url)
+    if not SHORT_URL_PATTERN.match(parsed.path):
+        return None
+    if parsed.path.startswith("/wiki/"):
+        return parsed.path[len("/wiki") :]
+    return parsed.path
 
 
 def resolve_target_without_redirects(url: str) -> ResolvedTarget:
