@@ -48,7 +48,7 @@ wheels = [
 
 [[package]]
 name = "confluence-fetch"
-version = "0.9.0"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },

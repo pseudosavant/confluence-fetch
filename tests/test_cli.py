@@ -350,7 +350,7 @@ def test_version_flag_prints_version_and_returns_zero() -> None:
             cli.main(["--version"], env={})
 
     assert excinfo.value.code == 0
-    assert stdout.getvalue() == "confluence-fetch 0.11.0\n"
+    assert stdout.getvalue() == "confluence-fetch 0.12.0\n"
     assert stderr.getvalue() == ""
 
 

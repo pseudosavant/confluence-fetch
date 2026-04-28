@@ -49,7 +49,7 @@ import base64
 def build_auth_headers(token: str, email: str) -> dict[str, str]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "confluence-fetch/0.11.0",
+        "User-Agent": "confluence-fetch/0.12.0",
     }
     raw = f"{email}:{token}".encode("utf-8")
     headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
