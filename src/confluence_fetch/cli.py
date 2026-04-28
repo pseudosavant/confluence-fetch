@@ -27,6 +27,17 @@ from confluence_fetch.models import FetchOptions
 from confluence_fetch.urls import parse_host
 
 
+def configure_utf8_stdio(*streams: object) -> None:
+    for stream in streams:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (AttributeError, TypeError, ValueError):
+            continue
+
+
 ROOT_DESCRIPTION = """\
 confluence-fetch - Fetch Confluence Cloud page context as Markdown or JSON
 
@@ -348,6 +359,10 @@ def main(
 ) -> int:
     active_stdout = stdout if stdout is not None else sys.stdout
     active_stderr = stderr if stderr is not None else sys.stderr
+    if stdout is None:
+        configure_utf8_stdio(active_stdout)
+    if stderr is None:
+        configure_utf8_stdio(active_stderr)
     active_env = env if env is not None else dict(os.environ)
     parser = build_parser()
 

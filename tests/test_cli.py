@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sys
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,33 @@ def test_fetch_writes_payload_to_stdout_only(monkeypatch, tmp_path: Path) -> Non
     assert exit_code == 0
     assert stdout.getvalue().startswith("# 123456789 Example")
     assert stderr.getvalue() == ""
+
+
+def test_main_reconfigures_standard_streams_to_utf8(monkeypatch, tmp_path: Path) -> None:
+    result = fake_page_result()
+    result.document_markdown = "# 123456789 Example\n\n# Page\nUTF-8: ✅"
+    monkeypatch.setattr(cli, "fetch_document", lambda *args, **kwargs: result)
+    stdout_bytes = io.BytesIO()
+    stderr_bytes = io.BytesIO()
+    stdout = io.TextIOWrapper(stdout_bytes, encoding="cp1252")
+    stderr = io.TextIOWrapper(stderr_bytes, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", stderr)
+
+    exit_code = cli.main(
+        [
+            "fetch",
+            "--no-progress",
+            "https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example",
+        ],
+        env={"CONFLUENCE_TOKEN": "token", "CONFLUENCE_EMAIL": "user@example.com"},
+        home=tmp_path,
+    )
+
+    assert exit_code == 0
+    stdout.flush()
+    assert "UTF-8: ✅" in stdout_bytes.getvalue().decode("utf-8")
+    assert stderr_bytes.getvalue() == b""
 
 
 def test_fetch_output_file_keeps_stdout_empty(monkeypatch, tmp_path: Path) -> None:
