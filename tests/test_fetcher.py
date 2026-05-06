@@ -153,8 +153,9 @@ def test_comment_tree_and_limit_behavior() -> None:
         {
             "id": "3",
             "body": {"view": {"value": "<p>Inline</p>"}},
-            "history": {"createdBy": {"displayName": "C"}, "createdDate": "2024-01-03T00:00:00Z"},
-            "extensions": {"inlineProperties": {"text": "selection"}},
+            "version": {"authorId": "account-123", "createdAt": "2024-01-03T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "selection"},
         },
     ]
 
@@ -166,6 +167,28 @@ def test_comment_tree_and_limit_behavior() -> None:
     assert [node.id for node in limit_roots(footer, 1)] == ["2"]
     assert [node.id for node in inline] == ["3"]
     assert inline[0].context == "selection"
+    assert inline[0].author == "account-123"
+
+
+def test_comment_tree_prefers_resolved_author_and_hyphenated_inline_context() -> None:
+    raw_comments = [
+        {
+            "id": "3",
+            "body": {"view": {"value": "<p>Inline</p>"}},
+            "version": {"authorId": "account-123", "createdAt": "2024-01-03T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inline-original-selection": "hyphenated selection"},
+            "_resolved_author": "Resolved Author",
+        },
+    ]
+
+    _footer, inline = build_comment_tree(
+        raw_comments,
+        canonical_url="https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example",
+    )
+
+    assert inline[0].author == "Resolved Author"
+    assert inline[0].context == "hyphenated selection"
 
 
 def test_normalize_page_html_makes_relative_links_absolute() -> None:

@@ -49,7 +49,7 @@ import base64
 def build_auth_headers(token: str, email: str) -> dict[str, str]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "confluence-fetch/0.12.0",
+        "User-Agent": "confluence-fetch/0.13.0",
     }
     raw = f"{email}:{token}".encode("utf-8")
     headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
@@ -362,6 +362,81 @@ def fetch_comments_payload(
     return comments
 
 
+def extract_comment_author_id(raw: dict[str, Any]) -> str | None:
+    candidates = (
+        raw.get("authorId"),
+        raw.get("ownerId"),
+        raw.get("creatorId"),
+        raw.get("version", {}).get("authorId"),
+        raw.get("history", {}).get("createdBy", {}).get("accountId"),
+        raw.get("author", {}).get("accountId"),
+    )
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def iter_comments(raw_comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for raw in raw_comments:
+        flattened.append(raw)
+        children = raw.get("_children", [])
+        if isinstance(children, list):
+            flattened.extend(iter_comments([child for child in children if isinstance(child, dict)]))
+    return flattened
+
+
+def hydrate_comment_authors(
+    raw_comments: list[dict[str, Any]],
+    *,
+    gateway_base: str,
+    client: httpx.Client,
+    ctx: FetchContext,
+) -> None:
+    author_ids = sorted(
+        {
+            author_id
+            for raw in iter_comments(raw_comments)
+            for author_id in [extract_comment_author_id(raw)]
+            if author_id
+        }
+    )
+    if not author_ids:
+        return
+
+    try:
+        response = client.post(f"{gateway_base}/api/v2/users-bulk", json={"accountIds": author_ids})
+    except httpx.HTTPError as exc:
+        ctx.log(f"Comment author lookup failed: {exc}")
+        return
+    if response.status_code >= 400:
+        ctx.log(f"Comment author lookup skipped with status {response.status_code}.")
+        return
+
+    payload = response.json()
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return
+    names_by_id: dict[str, str] = {}
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        account_id = item.get("accountId")
+        if not isinstance(account_id, str) or not account_id:
+            continue
+        for key in ("displayName", "publicName", "accountId"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                names_by_id[account_id] = value
+                break
+
+    for raw in iter_comments(raw_comments):
+        author_id = extract_comment_author_id(raw)
+        if author_id and author_id in names_by_id:
+            raw["_resolved_author"] = names_by_id[author_id]
+
+
 def normalize_page_html(html: str, canonical_url: str) -> str:
     base_url = canonical_url if canonical_url.endswith("/") else f"{canonical_url}/"
     return normalize_html_links(html, base_url)
@@ -437,17 +512,30 @@ def parse_comment_parent_id(raw: dict[str, Any], page_id: str) -> str | None:
 
 
 def parse_comment_context(raw: dict[str, Any]) -> str | None:
-    inline = raw.get("extensions", {}).get("inlineProperties", {})
-    if not isinstance(inline, dict):
-        return None
-    for key in ("text", "selection", "originalSelection"):
-        value = inline.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    containers = [
+        raw.get("extensions", {}).get("inlineProperties", {}),
+        raw.get("properties", {}),
+    ]
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for key in (
+            "text",
+            "selection",
+            "originalSelection",
+            "inlineOriginalSelection",
+            "inline-original-selection",
+        ):
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return None
 
 
 def parse_comment_author(raw: dict[str, Any]) -> str:
+    resolved_author = raw.get("_resolved_author")
+    if isinstance(resolved_author, str) and resolved_author:
+        return resolved_author
     candidates = [
         raw.get("author", {}),
         raw.get("history", {}).get("createdBy", {}),
@@ -464,6 +552,9 @@ def parse_comment_author(raw: dict[str, Any]) -> str:
         value = raw.get(key)
         if isinstance(value, str) and value:
             return value
+    author_id = extract_comment_author_id(raw)
+    if author_id:
+        return author_id
     return "Unknown author"
 
 
@@ -611,6 +702,7 @@ def fetch_document(
                 client=active_client,
                 ctx=ctx,
             )
+            hydrate_comment_authors(raw_comments, gateway_base=gateway_base, client=active_client, ctx=ctx)
             footer_roots, inline_roots = build_comment_tree(
                 raw_comments,
                 canonical_url=canonical_url,

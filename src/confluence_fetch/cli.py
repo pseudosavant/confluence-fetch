@@ -68,10 +68,25 @@ Commands:
   fetch   Fetch a Confluence page. Usually implicit when you pass a URL directly.
   config  Show or update non-secret config.
 
+Common fetch options:
+  --format markdown|json       Output format. Default: markdown.
+  -o, --output PATH            Write the payload to a file instead of stdout.
+  --download-images            Download image assets and rewrite Markdown image links.
+  --comments                   Include a # Discussion section.
+  --comment-limit N            Limit root comments per section. Default: 10, valid range 1..50.
+  --comment-kinds all|footer|inline
+                               Select footer comments, inline comments, or both. Default: all.
+  --token-env ENV_VAR          Read the API token from this environment variable name.
+
 Auth:
   Basic auth only: Confluence account email plus API token.
   Token env resolution: --token-env, domain config override, [defaults].token_env_var, CONFLUENCE_TOKEN
   Email resolution: domain config email, [defaults].email, CONFLUENCE_EMAIL, confluence_email
+  Scoped token permissions:
+    read:page:confluence        Fetch page content and resolve page URLs.
+    read:comment:confluence     Required when using --comments.
+    read:attachment:confluence  Required when using --download-images.
+    read:user:confluence        Resolve comment author names; otherwise account IDs are used.
 
 Output contract:
   stdout  Payload only (Markdown by default, JSON with --format json)
@@ -118,6 +133,12 @@ Examples:
 Required setup:
   Set a token env var, usually CONFLUENCE_TOKEN
   Set your email once: confluence-fetch config set-email you@example.com
+
+Scoped token permissions:
+  read:page:confluence        Fetch page content and resolve page URLs.
+  read:comment:confluence     Required when using --comments.
+  read:attachment:confluence  Required when using --download-images.
+  read:user:confluence        Resolve comment author names; otherwise account IDs are used.
 
 Notes:
   Default output format is Markdown

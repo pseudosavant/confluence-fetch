@@ -325,6 +325,13 @@ def test_root_help_emphasizes_url_only_happy_path() -> None:
     assert "confluence-fetch <url>" in help_text
     assert 'automatically treats it as "fetch <url>"' in help_text
     assert "config set-email you@example.com" in help_text
+    assert "--comments" in help_text
+    assert "--comment-limit N" in help_text
+    assert "--comment-kinds all|footer|inline" in help_text
+    assert "read:page:confluence" in help_text
+    assert "read:comment:confluence" in help_text
+    assert "read:attachment:confluence" in help_text
+    assert "read:user:confluence" in help_text
     assert stderr.getvalue() == ""
 
 
@@ -338,6 +345,13 @@ def test_no_args_shows_help_and_returns_zero() -> None:
     help_text = stdout.getvalue()
     assert "Happy path:" in help_text
     assert "confluence-fetch <url>" in help_text
+    assert "--comments" in help_text
+    assert "--comment-limit N" in help_text
+    assert "--comment-kinds all|footer|inline" in help_text
+    assert "read:page:confluence" in help_text
+    assert "read:comment:confluence" in help_text
+    assert "read:attachment:confluence" in help_text
+    assert "read:user:confluence" in help_text
     assert stderr.getvalue() == ""
 
 
@@ -350,7 +364,7 @@ def test_version_flag_prints_version_and_returns_zero() -> None:
             cli.main(["--version"], env={})
 
     assert excinfo.value.code == 0
-    assert stdout.getvalue() == "confluence-fetch 0.12.0\n"
+    assert stdout.getvalue() == "confluence-fetch 0.13.0\n"
     assert stderr.getvalue() == ""
 
 
@@ -368,4 +382,8 @@ def test_fetch_help_explains_url_first_usage() -> None:
     assert "confluence-fetch <url>" in help_text
     assert "Most runs should only need the URL." in help_text
     assert "Bare page IDs are not supported; pass a Confluence URL" in help_text
+    assert "read:page:confluence" in help_text
+    assert "read:comment:confluence" in help_text
+    assert "read:attachment:confluence" in help_text
+    assert "read:user:confluence" in help_text
     assert stderr.getvalue() == ""

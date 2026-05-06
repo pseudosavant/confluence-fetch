@@ -149,6 +149,28 @@ Implementation target:
 
 Secrets are not written to config.
 
+### Scoped API Token Permissions
+
+For scoped Confluence API tokens, grant only the scopes needed for the features you use:
+
+| Feature | Required scope |
+| --- | --- |
+| Fetch page Markdown or JSON | `read:page:confluence` |
+| Include comments with `--comments` | `read:comment:confluence` |
+| Download image assets with `--download-images` | `read:attachment:confluence` |
+| Resolve comment author display names | `read:user:confluence` |
+
+Recommended full token for all current features:
+
+```text
+read:page:confluence
+read:comment:confluence
+read:attachment:confluence
+read:user:confluence
+```
+
+If `read:user:confluence` is missing, comments still render, but author names fall back to stable account IDs when Confluence does not include display names in the comment payload.
+
 ## License
 
 MIT. See `LICENSE`.
