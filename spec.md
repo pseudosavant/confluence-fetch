@@ -102,6 +102,8 @@ Recommended options:
   Limit root comments per rendered section; default `10`, valid range `1..50`
 - `--comment-kinds all|footer|inline`
   Default `all`
+- `--comment-order created|updated|document`
+  Sort comments by creation time, update time, or best-effort document position; default `document`
 - `--verbose`
   Log diagnostics to stderr
 - `--no-progress`
@@ -340,6 +342,10 @@ Recommended rendering rules:
 - If more than `--comment-limit N` root comments exist in a section, keep the most recent `N` roots and render that retained window oldest to newest
 - Include inline comment selection context using `On:`
 - Resolve author display names when permitted; otherwise fall back to account IDs or stable labels
+- Default comment rendering order is `document`: sort inline comments by the first matching occurrence of their anchor text in the rendered page body
+- If an inline comment anchor has multiple matches in `document` order, use the first occurrence
+- If an inline comment anchor cannot be matched in `document` order, render it after matched comments in created order
+- `created` and `updated` comment orders should be available for users who prefer time-based ordering without document-position ambiguity
 
 ## Images and Attachments
 

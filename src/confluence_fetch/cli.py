@@ -76,6 +76,8 @@ Common fetch options:
   --comment-limit N            Limit root comments per section. Default: 10, valid range 1..50.
   --comment-kinds all|footer|inline
                                Select footer comments, inline comments, or both. Default: all.
+  --comment-order created|updated|document
+                               Sort comments by creation time, update time, or best-effort document position. Default: document.
   --token-env ENV_VAR          Read the API token from this environment variable name.
 
 Auth:
@@ -128,6 +130,7 @@ Examples:
   confluence-fetch fetch --format json https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch fetch -o page.md https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch fetch --comments https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
+  confluence-fetch fetch --comments --comment-order created https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch fetch --download-images --assets-dir assets https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
 
 Required setup:
@@ -144,6 +147,7 @@ Notes:
   Default output format is Markdown
   JSON output includes structured fields plus Markdown fields
   Comments are opt-in with --comments
+  Default comment order is document: matched inline comment anchors are rendered top-to-bottom; unmatched comments come last by creation time
   Bare page IDs are not supported; pass a Confluence URL
 """
 
@@ -204,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("all", "footer", "inline"),
         default="all",
         help="Which comment sections to include when --comments is enabled. Default: all.",
+    )
+    fetch_parser.add_argument(
+        "--comment-order",
+        choices=("created", "updated", "document"),
+        default="document",
+        help="Sort comments by creation time, update time, or best-effort document position. Default: document.",
     )
     fetch_parser.add_argument("--verbose", action="store_true", help="Write detailed diagnostics to stderr.")
     fetch_parser.add_argument("--no-progress", action="store_true", help="Disable progress output on stderr.")
@@ -289,8 +299,8 @@ def normalize_argv(argv: Sequence[str]) -> list[str]:
 def validate_fetch_args(args: argparse.Namespace) -> None:
     if args.assets_dir and not args.download_images:
         raise UsageError("--assets-dir requires --download-images.")
-    if (args.comment_limit != 10 or args.comment_kinds != "all") and not args.comments:
-        raise UsageError("--comment-limit and --comment-kinds require --comments.")
+    if (args.comment_limit != 10 or args.comment_kinds != "all" or args.comment_order != "document") and not args.comments:
+        raise UsageError("--comment-limit, --comment-kinds, and --comment-order require --comments.")
     if not 1 <= args.comment_limit <= 50:
         raise UsageError("--comment-limit must be in the range 1..50.")
 
@@ -325,6 +335,7 @@ def run_fetch(args: argparse.Namespace, *, stdout: object, stderr: object, env: 
         comments=args.comments,
         comment_limit=args.comment_limit,
         comment_kinds=args.comment_kinds,
+        comment_order=args.comment_order,
         verbose=args.verbose,
         no_progress=args.no_progress,
     )

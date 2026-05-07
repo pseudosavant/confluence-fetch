@@ -126,5 +126,6 @@ class FetchOptions:
     comments: bool
     comment_limit: int
     comment_kinds: str
+    comment_order: str
     verbose: bool
     no_progress: bool

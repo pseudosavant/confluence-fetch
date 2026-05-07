@@ -49,7 +49,7 @@ import base64
 def build_auth_headers(token: str, email: str) -> dict[str, str]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "confluence-fetch/0.13.0",
+        "User-Agent": "confluence-fetch/0.14.0",
     }
     raw = f"{email}:{token}".encode("utf-8")
     headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
@@ -560,14 +560,28 @@ def parse_comment_author(raw: dict[str, Any]) -> str:
 
 def parse_comment_created_at(raw: dict[str, Any]) -> str | None:
     for value in (
-        raw.get("version", {}).get("createdAt"),
         raw.get("history", {}).get("createdDate"),
-        raw.get("version", {}).get("when"),
         raw.get("createdDate"),
+        raw.get("createdAt"),
+        raw.get("version", {}).get("createdAt"),
+        raw.get("version", {}).get("when"),
     ):
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def parse_comment_updated_at(raw: dict[str, Any]) -> str | None:
+    for value in (
+        raw.get("version", {}).get("createdAt"),
+        raw.get("version", {}).get("when"),
+        raw.get("history", {}).get("lastUpdated", {}).get("when"),
+        raw.get("updatedDate"),
+        raw.get("modifiedAt"),
+    ):
+        if isinstance(value, str) and value:
+            return value
+    return parse_comment_created_at(raw)
 
 
 def parse_comment_body_markdown(raw: dict[str, Any], canonical_url: str) -> str:
@@ -575,14 +589,45 @@ def parse_comment_body_markdown(raw: dict[str, Any], canonical_url: str) -> str:
     return markdown_from_html(normalize_page_html(html, canonical_url))
 
 
+def sort_comment_raw_items(
+    raw_items: list[dict[str, Any]],
+    *,
+    kind: str,
+    comment_order: str,
+    document_markdown: str,
+) -> list[dict[str, Any]]:
+    if comment_order == "updated":
+        return sorted(raw_items, key=lambda raw: (parse_comment_updated_at(raw) or "", str(raw.get("id", ""))))
+    if comment_order == "document" and kind == "inline":
+        document_text = document_markdown.casefold()
+
+        def document_sort_key(raw: dict[str, Any]) -> tuple[int, int | str, str, str]:
+            context = parse_comment_context(raw)
+            if context:
+                position = document_text.find(context.casefold())
+                if position >= 0:
+                    return (0, position, parse_comment_created_at(raw) or "", str(raw.get("id", "")))
+            return (1, parse_comment_created_at(raw) or "", str(raw.get("id", "")), "")
+
+        return sorted(raw_items, key=document_sort_key)
+    return sorted(raw_items, key=lambda raw: (parse_comment_created_at(raw) or "", str(raw.get("id", ""))))
+
+
 def build_comment_tree(
     raw_comments: list[dict[str, Any]],
     *,
     canonical_url: str,
+    comment_order: str = "document",
+    document_markdown: str = "",
 ) -> tuple[list[CommentNode], list[CommentNode]]:
     def build_nodes(raw_items: list[dict[str, Any]], kind: str) -> list[CommentNode]:
         nodes: list[CommentNode] = []
-        for raw in raw_items:
+        for raw in sort_comment_raw_items(
+            raw_items,
+            kind=kind,
+            comment_order=comment_order,
+            document_markdown=document_markdown,
+        ):
             raw.setdefault("extensions", {})
             raw["extensions"]["location"] = kind
             node = CommentNode(
@@ -598,7 +643,7 @@ def build_comment_tree(
             if isinstance(children, list):
                 node.replies = build_nodes([child for child in children if isinstance(child, dict)], kind)
             nodes.append(node)
-        return sorted(nodes, key=lambda node: (node.created_at or "", node.id))
+        return nodes
 
     footer_raw = [raw for raw in raw_comments if parse_comment_kind(raw) == "footer"]
     inline_raw = [raw for raw in raw_comments if parse_comment_kind(raw) == "inline"]
@@ -706,6 +751,8 @@ def fetch_document(
             footer_roots, inline_roots = build_comment_tree(
                 raw_comments,
                 canonical_url=canonical_url,
+                comment_order=options.comment_order,
+                document_markdown=body_markdown,
             )
             discussion = DiscussionResult(
                 included=True,

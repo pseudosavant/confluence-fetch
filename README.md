@@ -68,6 +68,15 @@ Include comments:
 uvx confluence-fetch fetch --comments "https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example+Page"
 ```
 
+Comment order defaults to best-effort document order. Inline comments with anchor text are rendered top-to-bottom by the first matching occurrence in the page body. Comments whose anchors cannot be matched are rendered at the end in created order.
+
+Use a time-based order when you prefer an unambiguous chronological list:
+
+```powershell
+uvx confluence-fetch fetch --comments --comment-order created "https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example+Page"
+uvx confluence-fetch fetch --comments --comment-order updated "https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example+Page"
+```
+
 ## Config
 
 Optional user config lives at:
@@ -130,6 +139,9 @@ uvx confluence-fetch config set-domain-token-env sona-systems.atlassian.net SONA
 
 - `--format markdown`
 - `--format json`
+- `--comment-order document`
+- `--comment-order created`
+- `--comment-order updated`
 
 Markdown is the default.
 

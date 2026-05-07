@@ -34,6 +34,7 @@ def make_options(tmp_path: Path, *, format_name: str = "markdown") -> FetchOptio
         comments=False,
         comment_limit=10,
         comment_kinds="all",
+        comment_order="document",
         verbose=False,
         no_progress=True,
     )
@@ -189,6 +190,76 @@ def test_comment_tree_prefers_resolved_author_and_hyphenated_inline_context() ->
 
     assert inline[0].author == "Resolved Author"
     assert inline[0].context == "hyphenated selection"
+
+
+def test_document_comment_order_uses_first_anchor_match_and_unmatched_last() -> None:
+    raw_comments = [
+        {
+            "id": "later",
+            "body": {"view": {"value": "<p>Later</p>"}},
+            "version": {"createdAt": "2024-01-02T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "Second anchor"},
+        },
+        {
+            "id": "unmatched",
+            "body": {"view": {"value": "<p>Unmatched</p>"}},
+            "version": {"createdAt": "2024-01-01T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "Missing anchor"},
+        },
+        {
+            "id": "first",
+            "body": {"view": {"value": "<p>First</p>"}},
+            "version": {"createdAt": "2024-01-03T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "First anchor"},
+        },
+    ]
+
+    _footer, inline = build_comment_tree(
+        raw_comments,
+        canonical_url="https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example",
+        comment_order="document",
+        document_markdown="First anchor\n\nRepeated\n\nSecond anchor\n\nRepeated",
+    )
+
+    assert [node.id for node in inline] == ["first", "later", "unmatched"]
+
+
+def test_created_and_updated_comment_order() -> None:
+    raw_comments = [
+        {
+            "id": "updated-last",
+            "body": {"view": {"value": "<p>Updated last</p>"}},
+            "version": {"createdAt": "2024-01-03T00:00:00Z"},
+            "history": {"createdDate": "2024-01-01T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "A"},
+        },
+        {
+            "id": "updated-first",
+            "body": {"view": {"value": "<p>Updated first</p>"}},
+            "version": {"createdAt": "2024-01-02T00:00:00Z"},
+            "history": {"createdDate": "2024-01-04T00:00:00Z"},
+            "extensions": {"location": "inline"},
+            "properties": {"inlineOriginalSelection": "B"},
+        },
+    ]
+
+    _footer, created = build_comment_tree(
+        raw_comments,
+        canonical_url="https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example",
+        comment_order="created",
+    )
+    _footer, updated = build_comment_tree(
+        raw_comments,
+        canonical_url="https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Example",
+        comment_order="updated",
+    )
+
+    assert [node.id for node in created] == ["updated-last", "updated-first"]
+    assert [node.id for node in updated] == ["updated-first", "updated-last"]
 
 
 def test_normalize_page_html_makes_relative_links_absolute() -> None:
