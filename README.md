@@ -28,6 +28,15 @@ Target public install path:
 uvx confluence-fetch --help
 ```
 
+Top-level metadata commands:
+
+```powershell
+uvx confluence-fetch --about
+uvx confluence-fetch --version
+```
+
+`--version` prints only the semantic version.
+
 For local development, the repo will also keep a PEP 723 script entry point for `uv run`.
 
 ## Quick Start
@@ -132,6 +141,21 @@ uvx confluence-fetch config set-domain-token-env sona-systems.atlassian.net SONA
 ```
 
 `config show` displays the effective token env var names, whether they are set or missing, and the configured default email. It never prints token values.
+
+## Agent Skill
+
+`confluence-fetch` can install a managed `$confluence-fetch` skill for agentic tools:
+
+```powershell
+uvx confluence-fetch install-skill
+uvx confluence-fetch remove-skill
+```
+
+By default the skill is written under `~/.agents/skills/confluence-fetch/SKILL.md`. The skill teaches agents to fetch page context with:
+
+```text
+uvx confluence-fetch "<confluence URL>"
+```
 
 ## Output
 

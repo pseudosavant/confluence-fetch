@@ -71,6 +71,8 @@ confluence-fetch config show
 confluence-fetch config set-default-token-env ENV_VAR
 confluence-fetch config set-domain-token-env DOMAIN ENV_VAR
 confluence-fetch config remove-domain DOMAIN
+confluence-fetch install-skill
+confluence-fetch remove-skill
 ```
 
 Compatibility requirement:
@@ -134,6 +136,35 @@ Behavior requirements:
 - `config show` should display env var names plus whether each resolved env var is currently set or missing, but must never print token values
 - `config show` should display the configured default email if present
 - Config stores only non-secret defaults and env var names, never token values
+
+### Top-Level Metadata
+
+Recommended commands:
+
+- `confluence-fetch --about`
+- `confluence-fetch --version`
+
+Behavior requirements:
+
+- `--about` prints the command name, package version, one-sentence summary, project URL, and license.
+- `--version` prints only the semantic version.
+- Running `confluence-fetch` with no arguments prints the top-level help and returns success.
+- Top-level help should include the project URL and license after the command/help content.
+
+### Agent Skill
+
+Recommended commands:
+
+- `confluence-fetch install-skill`
+- `confluence-fetch remove-skill`
+
+Behavior requirements:
+
+- `install-skill` installs or updates a managed `$confluence-fetch` skill under the default agent skills directory.
+- `remove-skill` removes only the managed skill unless explicitly forced.
+- Skill command output is JSON on stdout.
+- The installed skill should explain that `$confluence-fetch {confluence URL}` means to fetch that Confluence URL.
+- The installed skill should prefer `uvx confluence-fetch "<confluence URL>"`.
 
 ## Resolution Rules
 
@@ -331,6 +362,7 @@ It must include:
 - At least one example for URL input, file output, and config commands
 - A short note about the installable package vs local `uv run` script entry point
 - A shortest-path setup example that uses `CONFLUENCE_TOKEN`, `config set-email`, and a full page URL
+- Project URL and MIT license in the top-level no-argument help footer
 
 ## Comments
 

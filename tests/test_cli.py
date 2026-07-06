@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -315,16 +316,16 @@ def test_root_help_emphasizes_url_only_happy_path() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        with pytest.raises(SystemExit) as excinfo:
-            cli.main(["--help"], env={})
+    exit_code = cli.main(["--help"], stdout=stdout, stderr=stderr, env={})
 
-    assert excinfo.value.code == 0
+    assert exit_code == 0
     help_text = stdout.getvalue()
     assert "Happy path:" in help_text
     assert "confluence-fetch <url>" in help_text
     assert 'automatically treats it as "fetch <url>"' in help_text
     assert "config set-email you@example.com" in help_text
+    assert "install-skill" in help_text
+    assert "remove-skill" in help_text
     assert "--comments" in help_text
     assert "--comment-limit N" in help_text
     assert "--comment-kinds all|footer|inline" in help_text
@@ -333,6 +334,8 @@ def test_root_help_emphasizes_url_only_happy_path() -> None:
     assert "read:comment:confluence" in help_text
     assert "read:attachment:confluence" in help_text
     assert "read:user:confluence" in help_text
+    assert "Project:\n  https://github.com/pseudosavant/confluence-fetch" in help_text
+    assert "License:\n  MIT" in help_text
     assert stderr.getvalue() == ""
 
 
@@ -354,6 +357,26 @@ def test_no_args_shows_help_and_returns_zero() -> None:
     assert "read:comment:confluence" in help_text
     assert "read:attachment:confluence" in help_text
     assert "read:user:confluence" in help_text
+    assert "Project:\n  https://github.com/pseudosavant/confluence-fetch" in help_text
+    assert "License:\n  MIT" in help_text
+    assert stderr.getvalue() == ""
+
+
+def test_about_prints_project_and_license() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = cli.main(["--about"], stdout=stdout, stderr=stderr, env={})
+
+    assert exit_code == 0
+    assert stdout.getvalue() == (
+        f"confluence-fetch {cli.__version__}\n"
+        "\n"
+        "Agent-first CLI for fetching Confluence Cloud page context as Markdown or JSON.\n"
+        "\n"
+        "Project: https://github.com/pseudosavant/confluence-fetch\n"
+        "License: MIT\n"
+    )
     assert stderr.getvalue() == ""
 
 
@@ -361,12 +384,38 @@ def test_version_flag_prints_version_and_returns_zero() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        with pytest.raises(SystemExit) as excinfo:
-            cli.main(["--version"], env={})
+    exit_code = cli.main(["--version"], stdout=stdout, stderr=stderr, env={})
 
-    assert excinfo.value.code == 0
-    assert stdout.getvalue() == "confluence-fetch 0.14.0\n"
+    assert exit_code == 0
+    assert stdout.getvalue() == f"{cli.__version__}\n"
+    assert stderr.getvalue() == ""
+
+
+def test_install_skill_command_outputs_json(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = cli.main(["install-skill", "--skills-dir", str(tmp_path)], stdout=stdout, stderr=stderr, env={})
+
+    payload = json.loads(stdout.getvalue())
+    assert exit_code == 0
+    assert payload["installed"] is True
+    assert payload["skill"] == "confluence-fetch"
+    assert (tmp_path / "confluence-fetch" / "SKILL.md").exists()
+    assert stderr.getvalue() == ""
+
+
+def test_remove_skill_command_outputs_json(tmp_path: Path) -> None:
+    assert cli.main(["install-skill", "--skills-dir", str(tmp_path)], stdout=io.StringIO(), stderr=io.StringIO(), env={}) == 0
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = cli.main(["remove-skill", "--skills-dir", str(tmp_path)], stdout=stdout, stderr=stderr, env={})
+
+    payload = json.loads(stdout.getvalue())
+    assert exit_code == 0
+    assert payload["removed"] is True
+    assert not (tmp_path / "confluence-fetch").exists()
     assert stderr.getvalue() == ""
 
 

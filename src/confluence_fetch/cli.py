@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -24,7 +25,12 @@ from confluence_fetch.config import (
 from confluence_fetch.errors import AppError, UsageError
 from confluence_fetch.fetcher import emit_result, fetch_document
 from confluence_fetch.models import FetchOptions
+from confluence_fetch.skill import install_skill, remove_skill
 from confluence_fetch.urls import parse_host
+
+
+PROJECT_URL = "https://github.com/pseudosavant/confluence-fetch"
+LICENSE_NAME = "MIT"
 
 
 def configure_utf8_stdio(*streams: object) -> None:
@@ -51,22 +57,28 @@ You usually only need to pass a Confluence URL. When the first argument is a URL
 confluence-fetch automatically treats it as "fetch <url>".
 """
 
-ROOT_EPILOG = """\
+ROOT_EPILOG = f"""\
 Usage:
   confluence-fetch <url>
   confluence-fetch fetch <url> [options]
   confluence-fetch config <command>
+  confluence-fetch install-skill
+  confluence-fetch remove-skill
 
 Examples:
   confluence-fetch https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch --help
+  confluence-fetch --about
   confluence-fetch fetch --format json https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch fetch --comments https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch config show
+  confluence-fetch install-skill
 
 Commands:
-  fetch   Fetch a Confluence page. Usually implicit when you pass a URL directly.
-  config  Show or update non-secret config.
+  fetch          Fetch a Confluence page. Usually implicit when you pass a URL directly.
+  config         Show or update non-secret config.
+  install-skill  Install or update the confluence-fetch skill.
+  remove-skill   Remove the managed confluence-fetch skill.
 
 Common fetch options:
   --format markdown|json       Output format. Default: markdown.
@@ -109,6 +121,19 @@ Exit codes:
   20 not found
   30 rate limited
   1 other failure
+
+Project:
+  {PROJECT_URL}
+License:
+  {LICENSE_NAME}
+"""
+
+ABOUT_TEXT = f"""confluence-fetch {__version__}
+
+Agent-first CLI for fetching Confluence Cloud page context as Markdown or JSON.
+
+Project: {PROJECT_URL}
+License: {LICENSE_NAME}
 """
 
 FETCH_DESCRIPTION = """\
@@ -164,8 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
         "-v",
         "--version",
         action="version",
-        version=f"%(prog)s {__version__}",
+        version=__version__,
     )
+    parser.add_argument("--about", action="store_true", help="show project and license information and exit")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     fetch_parser = subparsers.add_parser(
@@ -279,6 +305,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove a domain-specific override.",
     )
     remove_domain_parser.add_argument("domain")
+
+    install_skill_parser = subparsers.add_parser(
+        "install-skill",
+        help="Install or update the confluence-fetch skill.",
+    )
+    install_skill_parser.add_argument("--skills-dir", type=Path, help="Install into this skills root directory.")
+
+    remove_skill_parser = subparsers.add_parser(
+        "remove-skill",
+        help="Remove the managed confluence-fetch skill.",
+    )
+    remove_skill_parser.add_argument("--skills-dir", type=Path, help="Remove from this skills root directory.")
+    remove_skill_parser.add_argument("--force", action="store_true", help="Remove even if the skill is not managed.")
     return parser
 
 
@@ -287,7 +326,7 @@ def normalize_argv(argv: Sequence[str]) -> list[str]:
     if not args:
         return args
     first = args[0]
-    if first in {"fetch", "config"}:
+    if first in {"fetch", "config", "install-skill", "remove-skill"}:
         return args
     if first.startswith("-"):
         return args
@@ -381,6 +420,21 @@ def run_config(args: argparse.Namespace, *, stdout: object, stderr: object, env:
     raise UsageError("Unknown config command.")
 
 
+def write_json_payload(payload: object, stdout: object) -> None:
+    stdout.write(json.dumps(payload, indent=2))
+    stdout.write("\n")
+
+
+def run_install_skill(args: argparse.Namespace, *, stdout: object) -> int:
+    write_json_payload(install_skill(args.skills_dir), stdout)
+    return 0
+
+
+def run_remove_skill(args: argparse.Namespace, *, stdout: object) -> int:
+    write_json_payload(remove_skill(args.skills_dir, force=args.force), stdout)
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -400,14 +454,24 @@ def main(
 
     try:
         parsed_argv = normalize_argv(list(argv) if argv is not None else sys.argv[1:])
-        if not parsed_argv:
+        if not parsed_argv or parsed_argv in (["--help"], ["-h"]):
             parser.print_help(file=active_stdout)
+            return 0
+        if parsed_argv == ["--about"]:
+            active_stdout.write(ABOUT_TEXT)
+            return 0
+        if parsed_argv in (["--version"], ["-v"]):
+            active_stdout.write(f"{__version__}\n")
             return 0
         args = parser.parse_args(parsed_argv)
         if args.command == "fetch":
             return run_fetch(args, stdout=active_stdout, stderr=active_stderr, env=active_env, home=home)
         if args.command == "config":
             return run_config(args, stdout=active_stdout, stderr=active_stderr, env=active_env, home=home)
+        if args.command == "install-skill":
+            return run_install_skill(args, stdout=active_stdout)
+        if args.command == "remove-skill":
+            return run_remove_skill(args, stdout=active_stdout)
         raise UsageError("A command is required.")
     except AppError as exc:
         active_stderr.write(f"Error: {exc}\n")
