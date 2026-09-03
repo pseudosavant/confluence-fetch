@@ -71,6 +71,9 @@ confluence-fetch config show
 confluence-fetch config set-default-token-env ENV_VAR
 confluence-fetch config set-domain-token-env DOMAIN ENV_VAR
 confluence-fetch config remove-domain DOMAIN
+confluence-fetch skill install
+confluence-fetch skill status [--format json|text]
+confluence-fetch skill remove
 confluence-fetch install-skill
 confluence-fetch remove-skill
 ```
@@ -153,18 +156,51 @@ Behavior requirements:
 
 ### Agent Skill
 
-Recommended commands:
+Commands:
 
-- `confluence-fetch install-skill`
-- `confluence-fetch remove-skill`
+- `uvx confluence-fetch skill install [--force] [--skills-dir PATH]`
+- `uvx confluence-fetch skill status [--format json|text] [--skills-dir PATH]`
+- `uvx confluence-fetch skill remove [--force] [--skills-dir PATH]`
 
-Behavior requirements:
+The existing `install-skill` and `remove-skill` forms remain aliases. Skill commands return JSON on stdout by default. Status also supports plain text. Diagnostics go to stderr. All skill commands skip automatic synchronization.
 
-- `install-skill` installs or updates a managed `$confluence-fetch` skill under the default agent skills directory.
-- `remove-skill` removes only the managed skill unless explicitly forced.
-- Skill command output is JSON on stdout.
-- The installed skill should explain that `$confluence-fetch {confluence URL}` means to fetch that Confluence URL.
-- The installed skill should prefer `uvx confluence-fetch "<confluence URL>"`.
+The standard path is `~/.agents/skills/confluence-fetch/SKILL.md`. The sole canonical skill template retains the name, description, instructions, and `uvx confluence-fetch` examples. `$confluence-fetch {confluence URL}` means to fetch that URL. Files use UTF-8 without a BOM, LF line endings, and a trailing newline.
+
+Lifecycle fields live under the YAML `metadata` mapping:
+
+```yaml
+metadata:
+  managed-by: confluence-fetch
+  managed-version: "1.1.0"
+  managed-content-sha256: "sha256:<64 lowercase hexadecimal characters>"
+```
+
+`managed-version` is a quoted string that exactly matches the CLI's runtime `confluence_fetch.__version__`. There is no top-level version or sidecar file. Unrelated supported metadata in the canonical template is retained. The old `<!-- managed-by: confluence-fetch -->` marker remains a legacy indicator. A conflicting `metadata.managed-by` always makes the file unmanaged. Newly generated skills use front matter only.
+
+The SHA-256 hash covers the entire file with only the hash scalar replaced by `""`. Normalize CRLF and CR to LF, encode as UTF-8, then hash. Verification uses the installed file's own stored hash. Parse YAML to locate the field without reserializing it. The hash detects modifications. It is not a signature or security boundary.
+
+Ordinary invocations, including fetching, config inspection, help, no-argument help, version, and about output, perform best-effort local synchronization. Only an existing managed skill at the standard path is considered. Compare versions with PEP 440 semantics:
+
+| Installed state | Automatic action |
+| --- | --- |
+| Absent or unmanaged | Leave unchanged |
+| Legacy marker without a version | Migrate from version 0 without hash verification |
+| Managed version missing or malformed | Replace with the canonical skill before considering integrity |
+| Valid version equal to or newer than the CLI | Leave unchanged |
+| Older version with matching normalized hash | Replace with the canonical skill |
+| Older version with missing, malformed, or mismatched hash | Preserve and recommend `uvx confluence-fetch skill install --force` |
+
+An invalid running CLI version skips automatic synchronization. Local checkouts, direct local source installations, and editable installations also skip it. Use installed-distribution metadata and PEP 610 provenance. Local source directories and archives are excluded. Installed wheels, including direct wheel installations, remain eligible when the runtime package matches the distribution. Unknown provenance is conservatively excluded. Do not infer launcher behavior or uvx usage.
+
+An explicit install creates a missing skill, updates an older pristine managed skill, and leaves a current pristine skill unchanged. A valid managed version with missing, malformed, or mismatched integrity requires `--force`. Installation with `--force` can replace altered managed content. It cannot overwrite unmanaged content or downgrade a newer version. Missing or malformed managed versions use the same recovery rule as automatic synchronization. Explicit commands work in development builds and custom locations. Automatic invocations never rediscover custom paths. Repeat `--skills-dir PATH` for custom updates.
+
+Status is read-only. It exposes the selected path, standard or custom location, installed and managed flags, CLI and installed versions, version relation, integrity, recovery state, automatic eligibility, development exclusion reason, and force recommendation where applicable.
+
+Replacement writes a complete temporary file in the target directory, flushes and closes it, rechecks the installed bytes, then uses atomic `os.replace`. If the observed file changes, abandon the replacement. Clean up temporary files on failure. Do not wait for locks. Automatic failures never affect the primary exit code. Successful updates produce one stderr notice with old version, new version, and path. Older altered files produce one stderr notice with the force command. Other ordinary no-op states are quiet.
+
+Removal recognizes front matter and legacy management. It refuses unmanaged content unless `--force` is provided. Only `SKILL.md` is removed, followed by the skill directory if empty. Preserve unrelated files and reject unexpected or linked skill paths. Installation refuses a nonempty directory without `SKILL.md`.
+
+Synchronization does not query package indexes, refresh uv's cache, or update the CLI. The running CLI supplies the skill. Updates affect future skill loading and may require a new agent session to replace instructions already loaded by an agent.
 
 ## Resolution Rules
 

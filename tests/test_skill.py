@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from confluence_fetch.errors import UsageError
-from confluence_fetch.skill import MANAGED_MARKER, SKILL_MD, install_skill, remove_skill
+from confluence_fetch import __version__
+from confluence_fetch.skill import MANAGED_MARKER, install_skill, remove_skill
+from confluence_fetch.skill_content import render_skill
+
+
+SKILL_MD = render_skill(__version__)
 
 
 def test_install_skill_creates_and_updates_managed_skill(tmp_path: Path) -> None:
@@ -20,24 +25,24 @@ def test_install_skill_creates_and_updates_managed_skill(tmp_path: Path) -> None
     assert "$confluence-fetch {confluence URL}" in content
     assert "uvx confluence-fetch" in content
     assert "uvx confluenc-fetch" not in content
-    assert MANAGED_MARKER in content
+    assert MANAGED_MARKER not in content
 
     second = install_skill(tmp_path)
     assert second["installed"] is True
     assert second["updated"] is False
 
 
-def test_install_skill_overwrites_existing_skill_content(tmp_path: Path) -> None:
+def test_install_skill_refuses_unmanaged_content(tmp_path: Path) -> None:
     skill_dir = tmp_path / "confluence-fetch"
     skill_dir.mkdir(parents=True)
     skill_path = skill_dir / "SKILL.md"
     skill_path.write_text("---\nname: confluence-fetch\n---\nold skill text\n", encoding="utf-8")
 
-    result = install_skill(tmp_path)
-
-    assert result["installed"] is True
-    assert result["updated"] is True
-    assert skill_path.read_text(encoding="utf-8") == SKILL_MD
+    before = skill_path.read_bytes()
+    for force in (False, True):
+        with pytest.raises(UsageError, match="unmanaged"):
+            install_skill(tmp_path, force=force)
+    assert skill_path.read_bytes() == before
 
 
 def test_skill_text_is_platform_and_agent_neutral() -> None:

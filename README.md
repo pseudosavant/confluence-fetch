@@ -147,8 +147,10 @@ uvx confluence-fetch config set-domain-token-env sona-systems.atlassian.net SONA
 `confluence-fetch` can install a managed `$confluence-fetch` skill for agentic tools:
 
 ```powershell
-uvx confluence-fetch install-skill
-uvx confluence-fetch remove-skill
+uvx confluence-fetch skill install
+uvx confluence-fetch skill status
+uvx confluence-fetch skill status --format text
+uvx confluence-fetch skill remove
 ```
 
 By default the skill is written under `~/.agents/skills/confluence-fetch/SKILL.md`. The skill teaches agents to fetch page context with:
@@ -156,6 +158,22 @@ By default the skill is written under `~/.agents/skills/confluence-fetch/SKILL.m
 ```text
 uvx confluence-fetch "<confluence URL>"
 ```
+
+Normally installed CLIs automatically synchronize an already-installed managed skill in this standard location. The running CLI version is the authority. An older pristine skill updates locally on ordinary invocations, including help and version output. Missing and unmanaged skills are left alone. Equal and newer versions are never automatically replaced.
+
+Managed YAML metadata records the CLI version and a SHA-256 content hash. Modified skills and skills with valid versions but missing or invalid hashes are preserved. To replace managed content explicitly:
+
+```text
+uvx confluence-fetch skill install --force
+```
+
+Installation, even with `--force`, never overwrites unmanaged content or downgrades a newer version. Legacy skills with the old HTML marker migrate once without hash verification. Managed skills with missing or malformed versions receive a fresh replacement. Removal accepts both metadata formats. Removal with `--force` retains its unmanaged-file override. Only `SKILL.md` is managed. Unrelated files remain in place.
+
+All skill commands skip automatic synchronization and return JSON by default. `skill status --format text` reports the path, versions, integrity, and update eligibility in plain text. The existing `install-skill` and `remove-skill` commands remain available as aliases.
+
+Use `--skills-dir PATH` on skill commands for a custom skills root. Custom locations require explicit updates. Repeat that option when using `skill install --force`. Local checkouts, local source installs, and editable builds skip automatic synchronization. Explicit installation still works from development builds, including `uvx --from . confluence-fetch skill install`. Installed wheels remain eligible.
+
+Synchronization does not query package indexes, refresh uv's cache, or update the CLI. Notices go to stderr and never enter JSON stdout. Updates affect future agent skill loading. Instructions already loaded into a running agent session may remain unchanged until the skill is loaded again.
 
 ## Output
 
@@ -178,6 +196,15 @@ Implementation target:
 - Python `>=3.11`
 - installable PyPI package
 - PEP 723 wrapper for `uv run`
+
+Run tests and build distributions with:
+
+```text
+uv run --extra dev pytest
+uv build --no-sources
+```
+
+Tests isolate the home directory. To smoke-test a built wheel in a separate environment, run `uv run --extra dev python tests/wheel_smoke.py dist/confluence_fetch-1.1.0-py3-none-any.whl`. The smoke test works offline and uses temporary skill locations. No formatter or linter is configured in this repository.
 
 ## Auth
 

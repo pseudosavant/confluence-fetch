@@ -5,6 +5,8 @@
 #   "beautifulsoup4>=4.12",
 #   "httpx>=0.27",
 #   "markdownify>=0.13",
+#   "packaging>=24.0",
+#   "PyYAML>=6.0",
 #   "tomli-w>=1.0",
 # ]
 # ///

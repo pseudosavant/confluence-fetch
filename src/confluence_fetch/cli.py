@@ -25,7 +25,7 @@ from confluence_fetch.config import (
 from confluence_fetch.errors import AppError, UsageError
 from confluence_fetch.fetcher import emit_result, fetch_document
 from confluence_fetch.models import FetchOptions
-from confluence_fetch.skill import install_skill, remove_skill
+from confluence_fetch.skill import default_skills_dir, install_skill, remove_skill, skill_status, synchronize_skill
 from confluence_fetch.urls import parse_host
 
 
@@ -62,6 +62,7 @@ Usage:
   confluence-fetch <url>
   confluence-fetch fetch <url> [options]
   confluence-fetch config <command>
+  confluence-fetch skill install|remove|status
   confluence-fetch install-skill
   confluence-fetch remove-skill
 
@@ -72,13 +73,26 @@ Examples:
   confluence-fetch fetch --format json https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch fetch --comments https://your-domain.atlassian.net/wiki/spaces/ENG/pages/123456789/Example
   confluence-fetch config show
-  confluence-fetch install-skill
+  uvx confluence-fetch skill install
+  uvx confluence-fetch skill status --format text
+  uvx confluence-fetch skill install --force
 
 Commands:
   fetch          Fetch a Confluence page. Usually implicit when you pass a URL directly.
   config         Show or update non-secret config.
+  skill          Install, remove, or inspect the managed agent skill.
   install-skill  Install or update the confluence-fetch skill.
   remove-skill   Remove the managed confluence-fetch skill.
+
+Managed skill:
+  Normally installed CLIs synchronize an existing managed skill at
+  ~/.agents/skills/confluence-fetch/SKILL.md to the running CLI version.
+  Older pristine skills update locally. Modified skills are preserved.
+  Use uvx confluence-fetch skill install --force for a managed replacement.
+  Custom locations need explicit updates. Local source and editable builds skip
+  automatic synchronization. Skill commands also skip automatic synchronization.
+  This does not update the CLI, query package indexes, or refresh uv caches.
+  Changes apply to future skill loading, possibly after a new agent session.
 
 Common fetch options:
   --format markdown|json       Output format. Default: markdown.
@@ -306,18 +320,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     remove_domain_parser.add_argument("domain")
 
-    install_skill_parser = subparsers.add_parser(
-        "install-skill",
-        help="Install or update the confluence-fetch skill.",
+    skill_parser = subparsers.add_parser(
+        "skill",
+        help="Install, remove, or inspect the managed agent skill.",
+        description="Manage the confluence-fetch skill. These commands skip automatic synchronization.",
     )
-    install_skill_parser.add_argument("--skills-dir", type=Path, help="Install into this skills root directory.")
-
-    remove_skill_parser = subparsers.add_parser(
-        "remove-skill",
-        help="Remove the managed confluence-fetch skill.",
-    )
-    remove_skill_parser.add_argument("--skills-dir", type=Path, help="Remove from this skills root directory.")
-    remove_skill_parser.add_argument("--force", action="store_true", help="Remove even if the skill is not managed.")
+    skill_subparsers = skill_parser.add_subparsers(dest="skill_command", required=True)
+    descriptions = {
+        "install": "Install a missing skill or update a pristine older managed skill. Never overwrite unmanaged content.",
+        "remove": "Remove SKILL.md and its directory if empty. Preserve unrelated files.",
+        "status": "Inspect skill version, integrity, and automatic synchronization eligibility without writing files.",
+    }
+    for command, description in descriptions.items():
+        parsers = [skill_subparsers.add_parser(command, help=description, description=description)]
+        if command in {"install", "remove"}:
+            alias = subparsers.add_parser(f"{command}-skill", help=f"Alias for skill {command}.", description=description)
+            alias.set_defaults(skill_command=command)
+            parsers.append(alias)
+        for command_parser in parsers:
+            command_parser.add_argument(
+                "--skills-dir", type=Path,
+                help="Skills root directory. Default: ~/.agents/skills. Custom locations require explicit updates.",
+            )
+            if command == "install":
+                command_parser.add_argument(
+                    "--force", action="store_true",
+                    help="Replace altered or unverifiable managed content. Never overwrite unmanaged or newer skills.",
+                )
+            elif command == "remove":
+                command_parser.add_argument("--force", action="store_true", help="Remove even if the skill is not managed.")
+            else:
+                command_parser.add_argument(
+                    "--format", dest="format_name", choices=("json", "text"), default="json",
+                    help="Output format. Default: json, matching other skill commands.",
+                )
     return parser
 
 
@@ -326,7 +362,7 @@ def normalize_argv(argv: Sequence[str]) -> list[str]:
     if not args:
         return args
     first = args[0]
-    if first in {"fetch", "config", "install-skill", "remove-skill"}:
+    if first in {"fetch", "config", "skill", "install-skill", "remove-skill"}:
         return args
     if first.startswith("-"):
         return args
@@ -425,14 +461,31 @@ def write_json_payload(payload: object, stdout: object) -> None:
     stdout.write("\n")
 
 
-def run_install_skill(args: argparse.Namespace, *, stdout: object) -> int:
-    write_json_payload(install_skill(args.skills_dir), stdout)
+def run_skill(args: argparse.Namespace, *, stdout: object, home: Path | None) -> int:
+    selected = args.skills_dir if args.skills_dir is not None else default_skills_dir(home)
+    try:
+        if args.skill_command == "install":
+            payload = install_skill(selected, force=args.force)
+        elif args.skill_command == "remove":
+            payload = remove_skill(selected, force=args.force)
+        else:
+            payload = skill_status(args.skills_dir, home=home)
+    except (OSError, UnicodeError) as exc:
+        raise AppError(f"Unable to {args.skill_command} skill: {exc}") from exc
+    if getattr(args, "format_name", "json") == "text":
+        for key, value in payload.items():
+            display = "not applicable" if value is None else str(value).lower() if isinstance(value, bool) else value
+            stdout.write(f"{key.replace('_', ' ').capitalize()}: {display}\n")
+    else:
+        write_json_payload(payload, stdout)
     return 0
 
 
-def run_remove_skill(args: argparse.Namespace, *, stdout: object) -> int:
-    write_json_payload(remove_skill(args.skills_dir, force=args.force), stdout)
-    return 0
+def is_skill_command(argv: Sequence[str]) -> bool:
+    # The only root options take no values. Stop at the first positional token
+    # so a fetch URL or an option value cannot masquerade as a skill command.
+    first = next((arg for arg in argv if not arg.startswith("-")), None)
+    return first in {"skill", "install-skill", "remove-skill"}
 
 
 def main(
@@ -454,6 +507,8 @@ def main(
 
     try:
         parsed_argv = normalize_argv(list(argv) if argv is not None else sys.argv[1:])
+        if not is_skill_command(parsed_argv):
+            synchronize_skill(stderr=active_stderr, home=home)
         if not parsed_argv or parsed_argv in (["--help"], ["-h"]):
             parser.print_help(file=active_stdout)
             return 0
@@ -468,10 +523,8 @@ def main(
             return run_fetch(args, stdout=active_stdout, stderr=active_stderr, env=active_env, home=home)
         if args.command == "config":
             return run_config(args, stdout=active_stdout, stderr=active_stderr, env=active_env, home=home)
-        if args.command == "install-skill":
-            return run_install_skill(args, stdout=active_stdout)
-        if args.command == "remove-skill":
-            return run_remove_skill(args, stdout=active_stdout)
+        if args.command in {"skill", "install-skill", "remove-skill"}:
+            return run_skill(args, stdout=active_stdout, home=home)
         raise UsageError("A command is required.")
     except AppError as exc:
         active_stderr.write(f"Error: {exc}\n")
